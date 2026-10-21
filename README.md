@@ -17,3 +17,24 @@ The service now uses a **local open-weight model** (via Ollama) to understand me
 curl -fsSL https://ollama.com/install.sh | sh
 ollama serve          # leave this running
 ollama pull gemma2:2b # or phi3:mini / llama3.2:1b
+```
+### 2. Install project dependencies
+``` uv sync ```
+
+### 3. Run the API
+``` uv run uvicorn app.api:create_app --factory --reload ```
+
+### 4. Test the intent classifier
+``` uv run pytest tests/test_intent.py -v ```
+
+## Environment variables (optional)
+
+| Variable       | Default                  | Description              |
+|----------------|--------------------------|--------------------------|
+| `OLLAMA_HOST`  | `http://localhost:11434` | Ollama server URL        |
+| `OLLAMA_MODEL` | `gemma2:2b`              | Open-weight model to use |
+
+Copy `.env.example` if you want to change them:
+
+```bash
+cp .env.example .env
