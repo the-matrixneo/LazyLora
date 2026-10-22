@@ -1,17 +1,19 @@
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, FastAPI, HTTPException, status
 from temporalio.client import Client
+from temporalio.worker import Worker
 
-from app.database import get_db
+from app.database import get_db, load_sample_data
 from app.intent import (
     ShiftRequestMessageIntent,
     parse_shift_request_message_intent,
 )
 from app.models import InboundMessage, ShiftFanout, ShiftFanoutStatus
 from app.notifier import place_phone_call, send_sms
-from app.workflow import ShiftEscalationWorkflow
+from app.workflow import ShiftEscalationWorkflow, escalate_shift_activity
 
 router = APIRouter()
 
@@ -181,7 +183,7 @@ async def handle_inbound_message(message: InboundMessage) -> dict[str, str]:
     claimed_fanout = None
     for f in db.fanouts.all():
         if caregiver.id in f.contacted_caregiver_ids:
-            if f.status == ShiftFanoutStatus.PENDING:
+            if f.status in (ShiftFanoutStatus.PENDING, ShiftFanoutStatus.ESCALATED):
                 fanout = f
                 break
             elif f.status == ShiftFanoutStatus.CLAIMED:
@@ -201,7 +203,7 @@ async def handle_inbound_message(message: InboundMessage) -> dict[str, str]:
     lock = await _get_claim_lock(fanout.shift_id)
     async with lock:
         fanout = db.fanouts.get(fanout.shift_id)
-        if fanout is None or fanout.status != ShiftFanoutStatus.PENDING:
+        if fanout is None or fanout.status not in (ShiftFanoutStatus.PENDING, ShiftFanoutStatus.ESCALATED):
             return {
                 "status": "shift_already_claimed",
                 "message": "This shift has already been claimed",
@@ -219,12 +221,35 @@ async def handle_inbound_message(message: InboundMessage) -> dict[str, str]:
     }
 
 
-def create_app() -> FastAPI:
-    app = FastAPI()
-    app.include_router(router)
-
-    # Load sample data when the server starts
-    from app.database import load_sample_data
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     load_sample_data()
 
+    worker_task = None
+    try:
+        client = await Client.connect("localhost:7233")
+        worker = Worker(
+            client,
+            task_queue="shift-escalation",
+            workflows=[ShiftEscalationWorkflow],
+            activities=[escalate_shift_activity],
+        )
+        worker_task = asyncio.create_task(worker.run())
+        print("Temporal worker started inside API lifespan on task queue: shift-escalation", flush=True)
+    except Exception as e:
+        print(f"Failed to start Temporal worker: {e}", flush=True)
+
+    yield
+
+    if worker_task:
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(lifespan=lifespan)
+    app.include_router(router)
     return app    

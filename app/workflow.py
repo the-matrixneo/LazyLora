@@ -45,8 +45,8 @@ class ShiftEscalationWorkflow:
 
     @workflow.run
     async def run(self, shift_id: str) -> str:
-        # Wait 10 minutes (for demos you can lower this)
-        await workflow.sleep(timedelta(minutes=10))
+        # Wait 30 seconds for demo
+        await workflow.sleep(timedelta(seconds=30))
 
         result = await workflow.execute_activity(
             escalate_shift_activity,

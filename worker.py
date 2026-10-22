@@ -2,7 +2,7 @@ import asyncio
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from app.workflows import ShiftEscalationWorkflow, escalate_shift_activity
+from app.workflow import ShiftEscalationWorkflow, escalate_shift_activity
 
 
 async def main():
@@ -14,7 +14,7 @@ async def main():
         workflows=[ShiftEscalationWorkflow],
         activities=[escalate_shift_activity],
     )
-    print("Temporal worker started on task queue: shift-escalation")
+    print("Temporal worker started on task queue: shift-escalation", flush=True)
     await worker.run()
 
 
